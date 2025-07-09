@@ -299,12 +299,18 @@ CAMLexport value caml_callbackN_exn(value closure, int narg, value args[]) {
 
 #endif
 
+typedef value (callback_stub)(caml_domain_state* state,
+                              value closure,
+                              value* args);
+
+callback_stub caml_callback_asm, caml_callback2_asm, caml_callback3_asm;
+
 // Duplicate because we need both for ocamlrun if we want to run native code
 CAMLexport value caml_callback_exn_native(value closure, value arg)
 {
   Caml_check_caml_state();
   caml_domain_state* domain_state = Caml_state;
-  caml_maybe_expand_stack();
+  /* caml_maybe_expand_stack(); - Not available in bytecode */
 
   if (Stack_parent(domain_state->current_stack)) {
     value cont, res;
@@ -393,6 +399,11 @@ CAMLexport value caml_callback3 (value closure, value arg1, value arg2,
 CAMLexport value caml_callbackN (value closure, int narg, value args[])
 {
   return encoded_value_or_raise(caml_callbackN_exn(closure, narg, args));
+}
+
+CAMLexport value caml_callback_native (value closure, value arg)
+{
+  return encoded_value_or_raise(caml_callback_exn_native(closure, arg));
 }
 
 /* Naming of OCaml values */

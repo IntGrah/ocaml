@@ -28,20 +28,46 @@
 #include <limits.h>
 #include <dlfcn.h>
 
+/* Declaration for native callback function */
+extern value caml_callback_native(value closure, value arg);
+
+/* Missing symbols needed by amd64.S for native code support */
+/* These are normally provided by the native runtime */
+
+/* Exception values */
+value caml_exn_Stack_overflow = 0;  /* Will be properly initialized if needed */
+
+/* Garbage collection entry point */
+void caml_garbage_collection(void) {
+    /* In bytecode, the GC is handled differently */
+    /* This is just a stub for linking */
+}
+
+/* Program entry point - used by native code */
+void caml_program(void) {
+    /* Not used in bytecode runtime */
+}
+
+/* Apply functions for multiple arguments */
+value caml_apply2 = 0;  /* These would be code pointers in native runtime */
+value caml_apply3 = 0;
+
+/* Array bounds error */
+void caml_array_bound_error_asm(void) {
+    caml_array_bound_error();
+}
+
 CAMLprim value caml_foo(value x) {
     return x;
 }
 
-void caml_call_realloc_stack(int required_size) {
-  /* In bytecode, we don't need to do anything here */
-  /* Native code manages its own stack */
-  (void)required_size;
-}
-
 /* Bridge to bytecode Stdlib.print_endline - using C function not CAMLprim */
 value camlStdlib$print_endline_369(value arg) {
-  printf("%s\n", String_val(arg));
-  fflush(stdout);
+  if (arg != 0) {
+    printf("arg = %lx\n", arg);
+    // printf("%s\n", String_val(arg));
+    fflush(stdout);
+  }
   return Val_unit;
 }
 
@@ -120,10 +146,7 @@ CAMLprim value caml_natdynlink_open(value filename, value global) {
 }
 
 CAMLprim value caml_natdynlink_register(value handle_v, value symbols) {
-  CAMLparam2(handle_v, symbols);
-  // TODO: frametables, GC roots
-  bytecode_globals_inited++;
-  CAMLreturn(Val_unit);
+  return Val_unit;
 }
 
 CAMLprim value caml_natdynlink_run(value handle_v, value symbol) {
@@ -141,9 +164,11 @@ CAMLprim value caml_natdynlink_run(value handle_v, value symbol) {
     entrypoint = getsym(handle, unit, "entry");
     if (entrypoint != NULL) {
       printf("DEBUG: Found entry point for unit %s, call it\n", unit);
-      printf("DEBUG: entrypoint = %p", entrypoint);
+      printf("DEBUG: entrypoint = %p\n", entrypoint);
       fflush(stdout);
-      result = caml_callback((value)(&entrypoint), 0);
+      result = caml_callback_native((value)(&entrypoint), 0);
+      entrypoint();
+      result = Val_unit;
       printf("DEBUG: Called successfully");
     } else {
       printf("DEBUG: No entry point found for unit %s\n", unit);
