@@ -299,6 +299,38 @@ CAMLexport value caml_callbackN_exn(value closure, int narg, value args[]) {
 
 #endif
 
+// Duplicate because we need both for ocamlrun if we want to run native code
+CAMLexport value caml_callback_exn_native(value closure, value arg)
+{
+  Caml_check_caml_state();
+  caml_domain_state* domain_state = Caml_state;
+  caml_maybe_expand_stack();
+
+  if (Stack_parent(domain_state->current_stack)) {
+    value cont, res;
+
+    /* [closure] and [arg] need to be preserved across the allocation
+       of the stack parent, but need not and should not be registered
+       as roots past this allocation. */
+    Begin_roots2(closure, arg);
+    cont = alloc_and_clear_stack_parent(domain_state);
+    End_roots();
+
+    Begin_roots1(cont);
+    caml_update_young_limit_after_c_call(domain_state);
+    res = caml_callback_asm(domain_state, closure, &arg);
+    End_roots();
+
+    restore_stack_parent(domain_state, cont);
+
+    return res;
+  } else {
+    caml_update_young_limit_after_c_call(domain_state);
+    return caml_callback_asm(domain_state, closure, &arg);
+  }
+}
+
+
 /* Result-returning variants of the above */
 
 Caml_inline caml_result Result_encoded(value encoded)
