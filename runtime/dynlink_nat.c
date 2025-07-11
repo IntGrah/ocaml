@@ -161,6 +161,7 @@ CAMLprim value caml_natdynlink_run(value handle_v, value symbol) {
   if( caml_natdynlink_hook != NULL ) caml_natdynlink_hook(handle,unit);
 
   entrypoint = getsym(handle, unit, "entry");
+  printf("DEBUG: entrypoint = %p\n", entrypoint);
   if (NULL != entrypoint) result = caml_callback((value)(&entrypoint), 0);
   else result = Val_unit;
 

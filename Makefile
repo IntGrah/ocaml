@@ -1301,20 +1301,24 @@ endif
 
 
 libcamlrun_OBJECTS = \
-  $(runtime_BYTECODE_C_SOURCES:.c=.b.$(O)) $(winpthreads_OBJECTS)
+  $(runtime_BYTECODE_C_SOURCES:.c=.b.$(O)) $(winpthreads_OBJECTS) \
+  runtime/amd64.b.$(O)
 
 libcamlrun_non_shared_OBJECTS = \
   $(subst $(UNIX_OR_WIN32).b.$(O),$(UNIX_OR_WIN32)_non_shared.b.$(O), \
           $(libcamlrun_OBJECTS))
 
 libcamlrund_OBJECTS = $(runtime_BYTECODE_C_SOURCES:.c=.bd.$(O)) \
-  $(winpthreads_OBJECTS) runtime/instrtrace.bd.$(O)
+  $(winpthreads_OBJECTS) runtime/instrtrace.bd.$(O) \
+  runtime/amd64.bd.$(O)
 
 libcamlruni_OBJECTS = \
-  $(runtime_BYTECODE_C_SOURCES:.c=.bi.$(O)) $(winpthreads_OBJECTS)
+  $(runtime_BYTECODE_C_SOURCES:.c=.bi.$(O)) $(winpthreads_OBJECTS) \
+  runtime/amd64.bi.$(O)
 
 libcamlrunpic_OBJECTS = \
-  $(runtime_BYTECODE_C_SOURCES:.c=.bpic.$(O)) $(winpthreads_OBJECTS)
+  $(runtime_BYTECODE_C_SOURCES:.c=.bpic.$(O)) $(winpthreads_OBJECTS) \
+  runtime/amd64.bpic.$(O)
 
 libasmrun_OBJECTS = \
   $(runtime_NATIVE_C_SOURCES:.c=.n.$(O)) $(runtime_ASM_OBJECTS) \
@@ -1567,6 +1571,18 @@ runtime/%.i.o: runtime/%.S
 
 runtime/%_libasmrunpic.o: runtime/%.S
 	$(V_ASM)$(ASPP) $(OC_ASPPFLAGS) $(SHAREDLIB_CFLAGS) -o $@ $<
+
+runtime/%.b.o: runtime/%.S
+	$(V_ASM)$(ASPP) $(OC_ASPPFLAGS) $(runtime_CPPFLAGS) -o $@ $< || $(ASPP_ERROR)
+
+runtime/%.bd.o: runtime/%.S
+	$(V_ASM)$(ASPP) $(OC_ASPPFLAGS) $(ocamlrund_CPPFLAGS) -o $@ $< || $(ASPP_ERROR)
+
+runtime/%.bi.o: runtime/%.S
+	$(V_ASM)$(ASPP) $(OC_ASPPFLAGS) $(ocamlruni_CPPFLAGS) -o $@ $< || $(ASPP_ERROR)
+
+runtime/%.bpic.o: runtime/%.S
+	$(V_ASM)$(ASPP) $(OC_ASPPFLAGS) $(runtime_CPPFLAGS) $(SHAREDLIB_CFLAGS) -o $@ $<
 
 runtime/domain_state.inc: runtime/caml/domain_state.tbl
 	$(V_GEN)$(CPP) $< > $@

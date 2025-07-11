@@ -28,47 +28,47 @@
 #include <limits.h>
 #include <dlfcn.h>
 
-/* Declaration for native callback function */
-extern value caml_callback_native(value closure, value arg);
 
-/* Missing symbols needed by amd64.S for native code support */
-/* These are normally provided by the native runtime */
+// Missing symbols needed to satisfy linker
 
-/* Exception values */
-value caml_exn_Stack_overflow = 0;  /* Will be properly initialized if needed */
-
-/* Garbage collection entry point */
-void caml_garbage_collection(void) {
-    /* In bytecode, the GC is handled differently */
-    /* This is just a stub for linking */
-}
-
-/* Program entry point - used by native code */
-void caml_program(void) {
-    /* Not used in bytecode runtime */
-}
-
-/* Apply functions for multiple arguments */
-value caml_apply2 = 0;  /* These would be code pointers in native runtime */
+value caml_exn_Stack_overflow = 0;
+void caml_garbage_collection(void) {}
+void caml_program(void) {}
+value caml_apply2 = 0;
 value caml_apply3 = 0;
 
-/* Array bounds error */
 void caml_array_bound_error_asm(void) {
     caml_array_bound_error();
 }
 
-CAMLprim value caml_foo(value x) {
-    return x;
+// Fake Stdlib.print_endline
+value camlStdlib$print_endline_369(value arg) {
+  // movq arg, %rax
+  __asm__ ("" : "=a"(arg));
+  printf("%s\n", String_val(arg));
+  fflush(stdout);
+  return Val_unit;
 }
 
-/* Bridge to bytecode Stdlib.print_endline - using C function not CAMLprim */
-value camlStdlib$print_endline_369(value arg) {
-  if (arg != 0) {
-    printf("arg = %lx\n", arg);
-    // printf("%s\n", String_val(arg));
-    fflush(stdout);
-  }
-  return Val_unit;
+value camlStdlib$$$5e_139(value s1, value s2) {
+  // movq s1, %rax
+  // movq s2, %rbx
+  __asm__ ("" : "=a"(s1), "=b"(s2));
+  // __asm__ (
+  //   "movq %rdi, %rax;"
+  //   "movq %rsi, %rbx;"
+  // );
+  
+  /* Fallback implementation if primitive not found */
+  mlsize_t l1 = caml_string_length(s1);
+  mlsize_t l2 = caml_string_length(s2);
+  mlsize_t len = l1 + l2;
+  
+  value res = caml_alloc_string(len);
+  memmove(&Byte(res, 0), &Byte(s1, 0), l1);
+  memmove(&Byte(res, l1), &Byte(s2, 0), l2);
+  
+  return res;
 }
 
 #define Handle_val(v) (*((void **) Data_abstract_val(v)))
@@ -85,6 +85,7 @@ static void *getsym(void *handle, const char *module, const char *name) {
   caml_stat_free(fullname);
   return sym;
 }
+
 // stub
 CAMLprim value caml_natdynlink_getmap(value unit) {
   return Val_emptylist;
@@ -157,19 +158,13 @@ CAMLprim value caml_natdynlink_run(value handle_v, value symbol) {
   void (*entrypoint)(void);
   
   if (strcmp(unit, "_shared_startup") == 0) {
-    printf("DEBUG: SKIP _shared_startup\n");
-    fflush(stdout);
+    // printf("DEBUG: SKIP _shared_startup\n");
+    // fflush(stdout);
     result = Val_unit;
   } else {
     entrypoint = getsym(handle, unit, "entry");
     if (entrypoint != NULL) {
-      printf("DEBUG: Found entry point for unit %s, call it\n", unit);
-      printf("DEBUG: entrypoint = %p\n", entrypoint);
-      fflush(stdout);
-      result = caml_callback_native((value)(&entrypoint), 0);
-      entrypoint();
-      result = Val_unit;
-      printf("DEBUG: Called successfully");
+      result = caml_callback_native((value)&entrypoint, 0);
     } else {
       printf("DEBUG: No entry point found for unit %s\n", unit);
       fflush(stdout);
