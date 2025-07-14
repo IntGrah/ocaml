@@ -41,32 +41,39 @@ void caml_array_bound_error_asm(void) {
     caml_array_bound_error();
 }
 
-// Fake Stdlib.print_endline
+extern value caml_ml_open_descriptor_out(value fd);
+extern value caml_ml_output_bytes(value vchannel, value buff, value start, value length);
+extern value caml_ml_output_char(value vchannel, value ch);
+extern value caml_ml_flush(value vchannel);
+extern value caml_ml_string_length(value s);
+extern value caml_blit_string(value s1, value ofs1, value s2, value ofs2, value n);
+
 value camlStdlib$print_endline_369(value arg) {
   // movq arg, %rax
   __asm__ ("" : "=a"(arg));
-  printf("%s\n", String_val(arg));
-  fflush(stdout);
+  value stdout_channel = caml_ml_open_descriptor_out(Val_int(1));
+  value len = caml_ml_string_length(arg);
+  caml_ml_output_bytes(stdout_channel, arg, Val_int(0), len);
+  caml_ml_output_char(stdout_channel, Val_int('\n'));
+  caml_ml_flush(stdout_channel);
+  
   return Val_unit;
 }
+
 
 value camlStdlib$$$5e_139(value s1, value s2) {
   // movq s1, %rax
   // movq s2, %rbx
   __asm__ ("" : "=a"(s1), "=b"(s2));
-  // __asm__ (
-  //   "movq %rdi, %rax;"
-  //   "movq %rsi, %rbx;"
-  // );
-  
-  /* Fallback implementation if primitive not found */
-  mlsize_t l1 = caml_string_length(s1);
-  mlsize_t l2 = caml_string_length(s2);
-  mlsize_t len = l1 + l2;
+
+  value l1 = caml_ml_string_length(s1);
+  value l2 = caml_ml_string_length(s2);
+  mlsize_t len = Long_val(l1) + Long_val(l2);
   
   value res = caml_alloc_string(len);
-  memmove(&Byte(res, 0), &Byte(s1, 0), l1);
-  memmove(&Byte(res, l1), &Byte(s2, 0), l2);
+
+  caml_blit_string(s1, Val_int(0), res, Val_int(0), l1);
+  caml_blit_string(s2, Val_int(0), res, l1, l2);
   
   return res;
 }
