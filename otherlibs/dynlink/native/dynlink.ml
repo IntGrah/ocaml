@@ -23,24 +23,9 @@ open Dynlink_cmxs_format
 
 module DC = Dynlink_common
 module DT = Dynlink_types
-
-type global_map = {
-  name : string;
-  crc_intf : Digest.t option;
-  crc_impl : Digest.t option;
-  syms : string list
-}
+module DN = Dynlink_nat
 
 module Native = struct
-  external ndl_open : string -> bool -> DT.native_handle * dynheader
-    = "caml_natdynlink_open"
-  external ndl_register : DT.native_handle -> string array -> unit
-    = "caml_natdynlink_register"
-  external ndl_run : DT.native_handle -> string -> unit = "caml_natdynlink_run"
-  external ndl_getmap : unit -> global_map list = "caml_natdynlink_getmap"
-  external ndl_globals_inited : unit -> int = "caml_natdynlink_globals_inited"
-  external ndl_loadsym : string -> Obj.t = "caml_natdynlink_loadsym"
-
   module Unit_header = struct
     type t = dynunit
 
@@ -59,11 +44,11 @@ module Native = struct
   let is_native = true
   let adapt_filename f = Filename.chop_extension f ^ ".cmxs"
 
-  let num_globals_inited () = ndl_globals_inited ()
+  let num_globals_inited () = DN.ndl_globals_inited ()
 
   let fold_initial_units ~init ~f =
     let rank = ref 0 in
-    List.fold_left (fun acc { name; crc_intf; crc_impl; syms; } ->
+    List.fold_left (fun acc ({ name; crc_intf; crc_impl; syms; } : DN.global_map) ->
         rank := !rank + List.length syms;
         let implementation =
           match crc_impl with
@@ -73,18 +58,18 @@ module Native = struct
         f acc ~compunit:name ~interface:crc_intf
             ~implementation ~defined_symbols:syms)
       init
-      (ndl_getmap ())
+      (DN.ndl_getmap ())
 
   let run_shared_startup handle =
     match handle with
-    | DT.Native_handle (nh, _) -> ndl_run nh "_shared_startup"
+    | DT.Native_handle (nh, _) -> DN.ndl_run nh "_shared_startup"
     | DT.Bytecode_handle (_, _) -> ()
 
   let run _lock handle ~unit_header ~priv:_ =
     match handle with
     | DT.Native_handle (nh, _) ->
         List.iter (fun cu ->
-            try ndl_run nh cu
+            try DN.ndl_run nh cu
             with exn ->
               Printexc.raise_with_backtrace
                 (DT.Error (Library's_module_initializers_failed exn))
@@ -101,7 +86,7 @@ module Native = struct
     end else begin
       (* Load native plugin (.cmxs) *)
       let handle, header =
-        try ndl_open filename (not priv)
+        try DN.ndl_open filename (not priv)
         with exn -> raise (DT.Error (Cannot_open_dynamic_library exn))
       in
       if header.dynu_magic <> Config.cmxs_magic_number then begin
@@ -112,20 +97,20 @@ module Native = struct
         List.concat_map Unit_header.defined_symbols header.dynu_units
       in
       try
-        ndl_register handle (Array.of_list syms);
+        DN.ndl_register handle (Array.of_list syms);
         let unit_names = List.map (fun unit -> unit.dynu_name) header.dynu_units in
         DT.Native_handle (handle, unit_names), header.dynu_units
       with exn -> raise (DT.Error (Cannot_open_dynamic_library exn))
     end
 
   let unsafe_get_global_value ~bytecode_or_asm_symbol =
-    match ndl_loadsym bytecode_or_asm_symbol with
+    match DN.ndl_loadsym bytecode_or_asm_symbol with
     | exception _ -> None
     | obj -> Some obj
 
   let finish handle =
     match handle with
-    | DT.Native_handle _ -> ()
+    | DT.Native_handle (_, _) -> ()
     | DT.Bytecode_handle (_, _) -> failwith "Not implemented"
 end
 

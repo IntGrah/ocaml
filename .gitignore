@@ -40,7 +40,9 @@ _build
 META
 # Ignore foo.depend, but not .depend
 ?*.depend
-
+playground
+simple
+install
 # local to root directory
 
 /.dep

@@ -1035,10 +1035,11 @@ natruntop:
 
 dynlink_SOURCES = $(addprefix otherlibs/dynlink/,\
   dynlink_config.mli dynlink_config.ml \
+  dynlink_nat.mli dynlink_nat.ml \
   dynlink_types.mli dynlink_types.ml \
   dynlink_platform_intf.mli dynlink_platform_intf.ml \
   dynlink_common.mli dynlink_common.ml \
-  byte/dynlink_symtable.mli byte/dynlink_symtable.ml \
+  dynlink_symtable.mli dynlink_symtable.ml \
   byte/dynlink.mli byte/dynlink.ml \
   native/dynlink.mli native/dynlink.ml)
 
@@ -2271,7 +2272,7 @@ lintapidiff: tools/lintapidiff.opt$(EXE)
 	    grep -Ev internal\|obj\|stdLabels\|moreLabels |\
 	    tools/lintapidiff.opt $(VERSIONS)
 
-# Regenerate otherlibs/dynlink/byte/dynlink_symtable from its bytecomp sources
+# Regenerate otherlibs/dynlink/dynlink_symtable from its bytecomp sources
 
 sync_dynlink_SOURCES = tools/sync_dynlink.mli tools/sync_dynlink.ml
 sync_dynlink_LIBRARIES =
@@ -2279,9 +2280,9 @@ sync_dynlink_LIBRARIES =
 .PHONY: sync_dynlink
 sync_dynlink: tools/sync_dynlink.opt$(EXE)
 	    ./tools/sync_dynlink.opt$(EXE) \
-        otherlibs/dynlink/byte/dynlink_symtable.ml \
+        otherlibs/dynlink/dynlink_symtable.ml \
       > synced_dynlink.tmp
-	    diff -u synced_dynlink.tmp otherlibs/dynlink/byte/dynlink_symtable.ml
+	    diff -u synced_dynlink.tmp otherlibs/dynlink/dynlink_symtable.ml
 	    rm synced_dynlink.tmp
 # Tools
 
@@ -2669,6 +2670,7 @@ endif
 	rm -f otherlibs/dynlink/META otherlibs/dynlink/dynlink_config.ml \
 	  otherlibs/dynlink/dynlink_cmo_format.mli \
 	  otherlibs/dynlink/dynlink_cmxs_format.mli \
+	  otherlibs/dynlink/dynlink_nat.mli
 	  otherlibs/dynlink/dynlink_platform_intf.mli
 	$(MAKE) -C otherlibs distclean
 	rm -f $(runtime_CONFIGURED_HEADERS)

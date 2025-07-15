@@ -15,6 +15,8 @@
 (*                                                                        *)
 (**************************************************************************)
 
+module DT = Dynlink_types
+
 module String = struct
   include String
   module Set = Set.Make (String)
@@ -38,7 +40,6 @@ module Crossloading = struct
 end
 
 module Make (P : Dynlink_platform_intf.S) = struct
-  module DT = Dynlink_types
   module UH = P.Unit_header
 
   type interface_dep =
@@ -79,7 +80,7 @@ module Make (P : Dynlink_platform_intf.S) = struct
   end
 
 (* Limit the number of concurrent users to one *)
-  module Global: sig
+  module Global : sig
     type t = {
       mutable state:State.t;
       mutable inited:bool;
@@ -290,12 +291,13 @@ module Make (P : Dynlink_platform_intf.S) = struct
       let public_dynamically_loaded_units =
         String.Set.union state.public_dynamically_loaded_units new_units
       in
-      let state =
-        { state with
+      let state : State.t =
+        {
           implems;
           ifaces;
           defined_symbols;
           allowed_units;
+          main_program_units = state.main_program_units;
           public_dynamically_loaded_units;
         }
       in

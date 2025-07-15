@@ -23,11 +23,13 @@
 #include "caml/osdeps.h"
 #include "caml/intext.h"
 
+// Access to bytecode global data
+extern value caml_global_data;
+
 #include <stdio.h>
 #include <string.h>
 #include <limits.h>
 #include <dlfcn.h>
-
 
 // Missing symbols needed to satisfy linker
 
@@ -51,6 +53,12 @@ extern value caml_blit_string(value s1, value ofs1, value s2, value ofs2, value 
 value camlStdlib$print_endline_369(value arg) {
   // movq arg, %rax
   __asm__ ("" : "=a"(arg));
+
+  // value stdlib = Field(caml_global_data, 3);
+  // value print_endline = Field(stdlib, 45);
+
+  // return caml_callback(print_endline, arg);
+  
   value stdout_channel = caml_ml_open_descriptor_out(Val_int(1));
   value len = caml_ml_string_length(arg);
   caml_ml_output_bytes(stdout_channel, arg, Val_int(0), len);
@@ -93,8 +101,17 @@ static void *getsym(void *handle, const char *module, const char *name) {
   return sym;
 }
 
-// stub
+// Get the bytecode global symbol table for name->index mapping
+// This is implemented in dynlink_symtable.ml
+extern value caml_dynlink_get_global_map(value unit);
+
 CAMLprim value caml_natdynlink_getmap(value unit) {
+  // For bytecode, we delegate to the OCaml implementation
+  // that can access the symbol table
+  const value *get_map = caml_named_value("dynlink_get_global_map");
+  if (get_map != NULL) {
+    return caml_callback(*get_map, Val_unit);
+  }
   return Val_emptylist;
 }
 
@@ -104,12 +121,43 @@ CAMLprim value caml_natdynlink_globals_inited(value unit) {
   return Val_int(bytecode_globals_inited);
 }
 
+/* Dynamic symbol table for runtime symbol resolution */
+// static struct {
+//   const char* name;
+//   void* address;
+// } global_symbol_table[1024];
+// static int global_symbol_count = 0;
+
+/* Add a symbol to the global symbol table */
+// static void add_global_symbol(const char* name, void* address) {
+//   if (global_symbol_count < 1024) {
+//     global_symbol_table[global_symbol_count].name = caml_stat_strdup(name);
+//     global_symbol_table[global_symbol_count].address = address;
+//     global_symbol_count++;
+//   }
+// }
+
+/* Look up a symbol in the global symbol table */
+// static void* lookup_global_symbol(const char* name) {
+//   for (int i = 0; i < global_symbol_count; i++) {
+//     if (strcmp(global_symbol_table[i].name, name) == 0) {
+//       return global_symbol_table[i].address;
+//     }
+//   }
+//   return NULL;
+// }
+
+
 static void export_bridge_symbols(void) {
   static int symbols_exported = 0;
   if (!symbols_exported) {
     // Make symbols available to dynamically loaded code
     void *self = dlopen(NULL, RTLD_NOW | RTLD_GLOBAL);
     if (self) dlclose(self);
+    
+    /* Patch weak symbols with trampolines */
+    // patch_weak_symbols();
+    
     symbols_exported = 1;
   }
 }
@@ -124,6 +172,9 @@ CAMLprim value caml_natdynlink_open(value filename, value global) {
   
   // Ensure bridge symbols available
   export_bridge_symbols();
+  
+  /* Initialize symbol bridge */
+  // init_symbol_bridge();
   
   p = caml_stat_strdup_to_os(String_val(filename));
   caml_enter_blocking_section();
@@ -153,6 +204,7 @@ CAMLprim value caml_natdynlink_open(value filename, value global) {
   CAMLreturn(res);
 }
 
+/* Register bytecode symbols for a native plugin */
 CAMLprim value caml_natdynlink_register(value handle_v, value symbols) {
   return Val_unit;
 }
@@ -200,7 +252,4 @@ CAMLprim value caml_natdynlink_run_toplevel(value filename, value symbol) {
 void init_symbol_bridge(void) {
   /* Placeholder for future symbol patching initialization */
 }
-
-
-
 

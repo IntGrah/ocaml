@@ -161,7 +161,6 @@ CAMLprim value caml_natdynlink_run(value handle_v, value symbol) {
   if( caml_natdynlink_hook != NULL ) caml_natdynlink_hook(handle,unit);
 
   entrypoint = getsym(handle, unit, "entry");
-  printf("DEBUG: entrypoint = %p\n", entrypoint);
   if (NULL != entrypoint) result = caml_callback((value)(&entrypoint), 0);
   else result = Val_unit;
 
@@ -210,4 +209,106 @@ CAMLprim value caml_natdynlink_loadsym(value symbol)
   sym = (value) caml_globalsym(String_val(symbol));
   if (!sym) caml_failwith(String_val(symbol));
   CAMLreturn(sym);
+}
+
+/* Bytecode plugin support in native code */
+
+#include "caml/interp.h"
+#include "caml/instruct.h"
+
+typedef struct bytecode_plugin {
+  char *filename;
+  value code_fragments;  /* Array of bytecode fragments */
+  value symbols;         /* Array of unit names */
+} bytecode_plugin;
+
+/* Load a bytecode plugin */
+CAMLprim value caml_bytecode_dynlink_open(value filename)
+{
+  CAMLparam1(filename);
+  CAMLlocal3(res, handle, header);
+  FILE *fd;
+  char magic[12];
+  // long pos;
+  
+  fd = fopen(String_val(filename), "rb");
+  if (fd == NULL) {
+    caml_failwith("Cannot open bytecode file");
+  }
+  
+  /* Read magic number */
+  if (fread(magic, 1, 12, fd) != 12) {
+    fclose(fd);
+    caml_failwith("Cannot read magic number");
+  }
+  
+  /* Create a dynheader structure matching the expected format */
+  /* For bytecode files, we create a minimal header */
+  header = caml_alloc_small(2, 0);
+  Field(header, 0) = caml_copy_string(magic); /* dynu_magic */
+  
+  /* Create a dummy unit list with one unit */
+  CAMLlocal2(unit_list, unit);
+  unit = caml_alloc_small(5, 0);
+  Field(unit, 0) = caml_copy_string("BytecodeUnit");  /* dynu_name */
+  Field(unit, 1) = caml_copy_string("");             /* dynu_crc */
+  Field(unit, 2) = Val_emptylist;                    /* dynu_imports_cmi */
+  Field(unit, 3) = Val_emptylist;                    /* dynu_imports_cmx */
+  Field(unit, 4) = Val_emptylist;                    /* dynu_defines */
+  
+  unit_list = caml_alloc_small(2, 0);
+  Field(unit_list, 0) = unit;
+  Field(unit_list, 1) = Val_emptylist;
+  
+  Field(header, 1) = unit_list;  /* dynu_units */
+  
+  /* Create handle */
+  bytecode_plugin *plugin = caml_stat_alloc(sizeof(bytecode_plugin));
+  plugin->filename = caml_stat_strdup(String_val(filename));
+  plugin->code_fragments = Val_emptylist;
+  plugin->symbols = Val_emptylist;
+  
+  fclose(fd);
+  
+  handle = Val_handle(plugin);
+  res = caml_alloc_small(2, 0);
+  Field(res, 0) = handle;
+  Field(res, 1) = header;
+  
+  CAMLreturn(res);
+}
+
+/* Run bytecode for a unit */
+CAMLprim value caml_bytecode_dynlink_run(value handle, value symbol)
+{
+  CAMLparam2(handle, symbol);
+  printf("DEBUG: C\n");
+  // bytecode_plugin *plugin = Handle_val(handle);
+  
+  /* Create minimal bytecode that does nothing and returns unit */
+  // static opcode_t bytecode[] = {
+  //   CONST0,    /* Put 0 (Val_unit) in accumulator */
+  //   STOP       /* Stop execution and return accumulator */
+  // };
+  
+  /* Call the bytecode interpreter */
+  // value result = caml_bytecode_interpreter(bytecode, 
+  //                                         sizeof(bytecode)/sizeof(opcode_t),
+  //                                         Val_unit, 0);
+  
+  CAMLreturn(Val_unit);
+}
+
+/* Close bytecode plugin */
+CAMLprim value caml_bytecode_dynlink_close(value handle)
+{
+  CAMLparam1(handle);
+  bytecode_plugin *plugin = Handle_val(handle);
+  
+  if (plugin) {
+    if (plugin->filename) caml_stat_free(plugin->filename);
+    caml_stat_free(plugin);
+  }
+  
+  CAMLreturn(Val_unit);
 }

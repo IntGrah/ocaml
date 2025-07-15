@@ -22,6 +22,7 @@ open Dynlink_cmxs_format
 
 module DC = Dynlink_common
 module DT = Dynlink_types
+module DN = Dynlink_nat
 
 module Compression = struct (* Borrowed from utils/compression.ml *)
   external zstd_initialize: unit -> bool = "caml_zstd_initialize"
@@ -29,15 +30,6 @@ module Compression = struct (* Borrowed from utils/compression.ml *)
 end
 
 let _compression_supported = Compression.zstd_initialize ()
-
-(* Module for native plugin support in bytecode *)
-module Native_bridge = struct
-  external ndl_open : string -> bool -> DT.native_handle * dynheader
-    = "caml_natdynlink_open"
-  external ndl_register : DT.native_handle -> string array -> unit
-    = "caml_natdynlink_register"
-  external ndl_run : DT.native_handle -> string -> unit = "caml_natdynlink_run"
-end
 
 (* Main bytecode dynlink implementation *)
 module Bytecode = struct
@@ -109,10 +101,8 @@ module Bytecode = struct
   let run_shared_startup handle =
     match handle with
     | DT.Native_handle (nh, _units) ->
-        Native_bridge.ndl_run nh "_shared_startup"
-    | DT.Bytecode_handle _ ->
-        (* Bytecode doesn't have shared startup *)
-        ()
+        DN.ndl_run nh "_shared_startup"
+    | DT.Bytecode_handle _ -> ()
 
   let with_lock lock f =
     Mutex.lock lock;
@@ -136,14 +126,13 @@ module Bytecode = struct
     | DT.Native_handle (nh, unit_names) ->
         (* For native plugins, run the entry point for each unit *)
         List.iter (fun unit_name ->
-          try Native_bridge.ndl_run nh unit_name
+          try DN.ndl_run nh unit_name
           with exn ->
             Printexc.raise_with_backtrace
               (DT.Error (Library's_module_initializers_failed exn))
               (Printexc.get_raw_backtrace ()))
           unit_names
     | DT.Bytecode_handle ((ic, file_name, file_digest, _old_st), _) ->
-    (* if true then failwith "Ident foo run" else (); *)
     let clos = with_lock lock (fun () ->
         let compunit : compilation_unit = unit_header in
         seek_in ic compunit.cu_pos;
@@ -199,7 +188,7 @@ module Bytecode = struct
     if Filename.check_suffix file_name ".cmxs" then begin
       (* Load native plugin using the bridge *)
       try
-        let handle, header = Native_bridge.ndl_open file_name (not priv) in
+        let handle, header = DN.ndl_open file_name (not priv) in
         if header.dynu_magic <> Config.cmxs_magic_number then
           raise (DT.Error (Not_a_bytecode_file file_name));
         (* Register the native symbols *)
@@ -207,7 +196,7 @@ module Bytecode = struct
           "_shared_startup" ::
           List.concat_map (fun unit -> unit.dynu_defines) header.dynu_units
         in
-        Native_bridge.ndl_register handle (Array.of_list syms);
+        DN.ndl_register handle (Array.of_list syms);
         (* Convert native units to bytecode Unit_header format *)
         let units = List.map (fun (unit : dynunit) ->
           (* Create a fake compilation_unit for compatibility *)
@@ -288,9 +277,7 @@ module Bytecode = struct
 
   let finish handle =
     match handle with
-    | DT.Native_handle (_nh, _units) ->
-        (* Native handles don't need explicit cleanup *)
-        ()
+    | DT.Native_handle (_, _) -> ()
     | DT.Bytecode_handle ((ic, _filename, _digest, restore_symtable), _) ->
         begin match restore_symtable with
         | Some old_state ->
