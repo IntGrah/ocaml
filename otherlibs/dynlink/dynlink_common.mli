@@ -17,6 +17,12 @@
 
 (** Construction of dynlink functionality given the platform-specific code. *)
 
+module Crossloading : sig
+  type plugin_type = Native | Bytecode
+    
+  val detect_plugin_type : string -> plugin_type
+end
+
 module Make (_ : Dynlink_platform_intf.S) : sig
   val is_native : bool
   val loadfile : string -> unit

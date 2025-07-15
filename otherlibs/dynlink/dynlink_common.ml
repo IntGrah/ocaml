@@ -26,6 +26,17 @@ module String = struct
   end
 end
 
+module Crossloading = struct
+  (* Plugin type detection *)
+  type plugin_type = Native | Bytecode
+  
+  let detect_plugin_type filename =
+    if Filename.check_suffix filename ".cmxs" then Native
+    else if Filename.check_suffix filename ".cmo" || 
+            Filename.check_suffix filename ".cma" then Bytecode
+    else raise (Dynlink_types.Error (Not_a_bytecode_file filename))
+end
+
 module Make (P : Dynlink_platform_intf.S) = struct
   module DT = Dynlink_types
   module UH = P.Unit_header

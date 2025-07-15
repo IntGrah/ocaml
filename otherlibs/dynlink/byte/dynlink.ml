@@ -20,13 +20,6 @@ module Config = Dynlink_config
 open Dynlink_cmo_format
 open Dynlink_cmxs_format
 
-type global_map = {
-  name : string; [@warning "-69"]
-  crc_intf : Digest.t option; [@warning "-69"]
-  crc_impl : Digest.t option; [@warning "-69"]
-  syms : string list [@warning "-69"]
-} [@@warning "-69"]
-
 module DC = Dynlink_common
 module DT = Dynlink_types
 
@@ -39,24 +32,15 @@ let _compression_supported = Compression.zstd_initialize ()
 
 (* Module for native plugin support in bytecode *)
 module Native_bridge = struct
-  type handle
-  
-  external ndl_open : string -> bool -> handle * dynheader
+  external ndl_open : string -> bool -> DT.native_handle * dynheader
     = "caml_natdynlink_open"
-  external ndl_register : handle -> string array -> unit
+  external ndl_register : DT.native_handle -> string array -> unit
     = "caml_natdynlink_register"
-  external ndl_run : handle -> string -> unit = "caml_natdynlink_run"
-  external [@warning "-32"] ndl_getmap : unit -> global_map list = "caml_natdynlink_getmap"
-  external [@warning "-32"] ndl_globals_inited : unit -> int = "caml_natdynlink_globals_inited"
-  external [@warning "-32"] ndl_loadsym : string -> Obj.t = "caml_natdynlink_loadsym"
+  external ndl_run : DT.native_handle -> string -> unit = "caml_natdynlink_run"
 end
 
 (* Main bytecode dynlink implementation *)
 module Bytecode = struct
-  type filename = string
-
-
-
   module Unit_header = struct
     type t = compilation_unit
 
@@ -84,11 +68,6 @@ module Bytecode = struct
 
     let unsafe_module (t : t) = t.cu_primitives <> []
   end
-
-  type handle =
-    | Bytecode_handle of
-        Stdlib.in_channel * filename * Digest.t * Symtable.global_map option
-    | Native_handle of Native_bridge.handle * string list (* unit names *)
 
   let default_crcs = ref []
   let default_global_map = ref Symtable.empty_global_map
@@ -129,9 +108,9 @@ module Bytecode = struct
 
   let run_shared_startup handle =
     match handle with
-    | Native_handle (nh, _units) ->
+    | DT.Native_handle (nh, _units) ->
         Native_bridge.ndl_run nh "_shared_startup"
-    | Bytecode_handle _ ->
+    | DT.Bytecode_handle _ ->
         (* Bytecode doesn't have shared startup *)
         ()
 
@@ -154,7 +133,7 @@ module Bytecode = struct
 
   let run lock handle ~unit_header ~priv:_ =
     match handle with
-    | Native_handle (nh, unit_names) ->
+    | DT.Native_handle (nh, unit_names) ->
         (* For native plugins, run the entry point for each unit *)
         List.iter (fun unit_name ->
           try Native_bridge.ndl_run nh unit_name
@@ -163,7 +142,7 @@ module Bytecode = struct
               (DT.Error (Library's_module_initializers_failed exn))
               (Printexc.get_raw_backtrace ()))
           unit_names
-    | Bytecode_handle (ic, file_name, file_digest, _old_st) ->
+    | DT.Bytecode_handle ((ic, file_name, file_digest, _old_st), _) ->
     (* if true then failwith "Ident foo run" else (); *)
     let clos = with_lock lock (fun () ->
         let compunit : compilation_unit = unit_header in
@@ -247,7 +226,7 @@ module Bytecode = struct
           cu
         ) header.dynu_units in
         let unit_names = List.map (fun (unit : dynunit) -> unit.dynu_name) header.dynu_units in
-        Native_handle (handle, unit_names), units
+        DT.Native_handle (handle, unit_names), units
       with exn ->
         raise (DT.Error (Cannot_open_dynamic_library exn))
     end else begin
@@ -269,19 +248,20 @@ module Bytecode = struct
           else
             None
         in
-        let handle = Bytecode_handle (ic, file_name, file_digest, old_symtable) in
+        let bytecode_data = (ic, file_name, file_digest, old_symtable) in
         if buffer = Config.cmo_magic_number then begin
           let compunit_pos = input_binary_int ic in  (* Go to descriptor *)
           seek_in ic compunit_pos;
           let cu = (input_value ic : compilation_unit) in
-          handle, [cu]
+          DT.Bytecode_handle (bytecode_data, [Symtable.Compunit.name cu.cu_name]), [cu]
         end else
         if buffer = Config.cma_magic_number then begin
           let toc_pos = input_binary_int ic in  (* Go to table of contents *)
           seek_in ic toc_pos;
           let lib = (input_value ic : library) in
           Symtable.open_dlls lib.lib_dllibs;
-          handle, lib.lib_units
+          let unit_names = List.map (fun (cu : compilation_unit) -> Symtable.Compunit.name cu.cu_name) lib.lib_units in
+          DT.Bytecode_handle (bytecode_data, unit_names), lib.lib_units
         end else begin
           raise (DT.Error (Not_a_bytecode_file file_name))
         end
@@ -308,10 +288,10 @@ module Bytecode = struct
 
   let finish handle =
     match handle with
-    | Native_handle (_nh, _units) ->
+    | DT.Native_handle (_nh, _units) ->
         (* Native handles don't need explicit cleanup *)
         ()
-    | Bytecode_handle (ic, _filename, _digest, restore_symtable) ->
+    | DT.Bytecode_handle ((ic, _filename, _digest, restore_symtable), _) ->
         begin match restore_symtable with
         | Some old_state ->
           Symtable.hide_additions old_state

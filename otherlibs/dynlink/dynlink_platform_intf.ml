@@ -19,8 +19,6 @@
     Note that this file needs to be a valid .mli file. *)
 
 module type S = sig
-  type handle
-
   module Unit_header : sig
     type t
 
@@ -55,12 +53,12 @@ module type S = sig
   val load
      : filename:Dynlink_types.filename
     -> priv:bool
-    -> handle * (Unit_header.t list)
+    -> Dynlink_types.handle * (Unit_header.t list)
 
-  val run_shared_startup : handle -> unit
-  val run : Mutex.t -> handle -> unit_header:Unit_header.t -> priv:bool -> unit
+  val run_shared_startup : Dynlink_types.handle -> unit
+  val run : Mutex.t -> Dynlink_types.handle -> unit_header:Unit_header.t -> priv:bool -> unit
 
   val unsafe_get_global_value : bytecode_or_asm_symbol:string -> Obj.t option
 
-  val finish : handle -> unit
+  val finish : Dynlink_types.handle -> unit
 end

@@ -24,6 +24,13 @@ type implem_state =
 
 type filename = string
 
+type native_handle
+type bytecode_handle = Stdlib.in_channel * filename * Digest.t * Dynlink_symtable.global_map option
+
+type handle =
+  | Native_handle of native_handle * string list
+  | Bytecode_handle of bytecode_handle * string list
+
 type linking_error =
   | Undefined_global of string
   | Unavailable_primitive of string

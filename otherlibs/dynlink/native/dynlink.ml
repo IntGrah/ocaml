@@ -32,13 +32,11 @@ type global_map = {
 }
 
 module Native = struct
-  type handle
-
-  external ndl_open : string -> bool -> handle * dynheader
+  external ndl_open : string -> bool -> DT.native_handle * dynheader
     = "caml_natdynlink_open"
-  external ndl_register : handle -> string array -> unit
+  external ndl_register : DT.native_handle -> string array -> unit
     = "caml_natdynlink_register"
-  external ndl_run : handle -> string -> unit = "caml_natdynlink_run"
+  external ndl_run : DT.native_handle -> string -> unit = "caml_natdynlink_run"
   external ndl_getmap : unit -> global_map list = "caml_natdynlink_getmap"
   external ndl_globals_inited : unit -> int = "caml_natdynlink_globals_inited"
   external ndl_loadsym : string -> Obj.t = "caml_natdynlink_loadsym"
@@ -78,40 +76,57 @@ module Native = struct
       (ndl_getmap ())
 
   let run_shared_startup handle =
-    ndl_run handle "_shared_startup"
+    match handle with
+    | DT.Native_handle (nh, _) -> ndl_run nh "_shared_startup"
+    | DT.Bytecode_handle (_, _) -> ()
 
   let run _lock handle ~unit_header ~priv:_ =
-    List.iter (fun cu ->
-        try ndl_run handle cu
-        with exn ->
-          Printexc.raise_with_backtrace
-            (DT.Error (Library's_module_initializers_failed exn))
-            (Printexc.get_raw_backtrace ()))
-      (Unit_header.defined_symbols unit_header)
+    match handle with
+    | DT.Native_handle (nh, _) ->
+        List.iter (fun cu ->
+            try ndl_run nh cu
+            with exn ->
+              Printexc.raise_with_backtrace
+                (DT.Error (Library's_module_initializers_failed exn))
+                (Printexc.get_raw_backtrace ()))
+          (Unit_header.defined_symbols unit_header)
+    | DT.Bytecode_handle (_, _) ->
+        failwith "Not implemented"
 
   let load ~filename ~priv =
-    let handle, header =
-      try ndl_open filename (not priv)
+    (* Check if it's a bytecode plugin (.cmo) by file extension *)
+    if Filename.check_suffix filename ".cmo" then begin
+      (* Load bytecode plugin *)
+      failwith "Not implemented"
+    end else begin
+      (* Load native plugin (.cmxs) *)
+      let handle, header =
+        try ndl_open filename (not priv)
+        with exn -> raise (DT.Error (Cannot_open_dynamic_library exn))
+      in
+      if header.dynu_magic <> Config.cmxs_magic_number then begin
+        raise (DT.Error (Not_a_bytecode_file filename))
+      end;
+      let syms =
+        "_shared_startup" ::
+        List.concat_map Unit_header.defined_symbols header.dynu_units
+      in
+      try
+        ndl_register handle (Array.of_list syms);
+        let unit_names = List.map (fun unit -> unit.dynu_name) header.dynu_units in
+        DT.Native_handle (handle, unit_names), header.dynu_units
       with exn -> raise (DT.Error (Cannot_open_dynamic_library exn))
-    in
-    if header.dynu_magic <> Config.cmxs_magic_number then begin
-      raise (DT.Error (Not_a_bytecode_file filename))
-    end;
-    let syms =
-      "_shared_startup" ::
-      List.concat_map Unit_header.defined_symbols header.dynu_units
-    in
-    try
-      ndl_register handle (Array.of_list syms);
-      handle, header.dynu_units
-    with exn -> raise (DT.Error (Cannot_open_dynamic_library exn))
+    end
 
   let unsafe_get_global_value ~bytecode_or_asm_symbol =
     match ndl_loadsym bytecode_or_asm_symbol with
     | exception _ -> None
     | obj -> Some obj
 
-  let finish _handle = ()
+  let finish handle =
+    match handle with
+    | DT.Native_handle _ -> ()
+    | DT.Bytecode_handle (_, _) -> failwith "Not implemented"
 end
 
 include DC.Make (Native)
