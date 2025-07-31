@@ -32,6 +32,7 @@ type stat = {
   top_heap_words : int;
   stack_size : int;
   forced_major_collections: int;
+  live_stacks_words: int;
 }
 
 type control = {
@@ -165,6 +166,8 @@ module Memprof =
       ?(callstack_size = max_int)
       tracker =
       c_start sampling_rate callstack_size tracker
+
+    external is_sampling : unit -> bool = "caml_memprof_is_sampling"
 
     external stop : unit -> unit = "caml_memprof_stop"
 

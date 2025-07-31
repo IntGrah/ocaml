@@ -1067,9 +1067,9 @@ type _ int_bar = IB_constr : < bar : int; .. > int_bar
 Line 10, characters 3-4:
 10 |   (x:<foo:int>)
         ^
-Error: The value "x" has type "t" = "< foo : int; .. >"
+Error: The value "x" has type "t" = "< foo : int; .. as $0 >"
        but an expression was expected of type "< foo : int >"
-       Type "$0" = "< bar : int; .. >" is not compatible with type "<  >"
+       Type "$0" = "< bar : int; .. as $1 >" is not compatible with type "<  >"
        The second object type has no method "bar"
 |}];;
 
@@ -1081,9 +1081,10 @@ let g (type t) (x:t) (e : t int_foo) (e' : t int_bar) =
 Line 3, characters 3-4:
 3 |   (x:<foo:int;bar:int>)
        ^
-Error: The value "x" has type "t" = "< foo : int; .. >"
+Error: The value "x" has type "t" = "< foo : int; .. as $0 >"
        but an expression was expected of type "< bar : int; foo : int >"
-       Type "$0" = "< bar : int; .. >" is not compatible with type "< bar : int >"
+       Type "$0" = "< bar : int; .. as $1 >" is not compatible with type
+         "< bar : int >"
        The first object type has an abstract row, it cannot be closed
 |}];;
 
@@ -1095,14 +1096,14 @@ let g (type t) (x:t) (e : t int_foo) (e' : t int_bar) =
 Line 3, characters 2-26:
 3 |   (x:<foo:int;bar:int;..>)
       ^^^^^^^^^^^^^^^^^^^^^^^^
-Error: This expression has type "< bar : int; foo : int; .. >"
+Error: This expression has type "< bar : int; foo : int; .. as $1 >"
        but an expression was expected of type "'a"
        The type constructor "$1" would escape its scope
 |}, Principal{|
 Line 3, characters 2-26:
 3 |   (x:<foo:int;bar:int;..>)
       ^^^^^^^^^^^^^^^^^^^^^^^^
-Error: This expression has type "< bar : int; foo : int; .. >"
+Error: This expression has type "< bar : int; foo : int; .. as $1 >"
        but an expression was expected of type "'a"
        This instance of "$1" is ambiguous:
        it would escape the scope of its equation

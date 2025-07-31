@@ -634,8 +634,22 @@ let tree_of_best_type_path p p' =
   if Path.same p p' then tree_of_path (Some Type) p'
   else tree_of_path ~disambiguation:false None p'
 
+let tree_of_type_path p =
+  let (p', s) = best_type_path p in
+  let p'' = if (s = Id) then p' else p in
+  tree_of_best_type_path p p''
+
 (* Print a type expression *)
 
+(* We use proxies to find shared parts of type expressions/name variables.
+   A proxy of a type expression represents the type expression itself.
+   However, the difficulty is with open variants and objects -- in that case, we
+   don't have a guarantee that two types that are the same will actually compare
+   as equal when iterating through the type expression during printing.
+   In that case, we use the row variable as a proxy for the whole type, since
+   we maintain the invariant that the row variable uniquely identifies the type.
+   This, however, means, we can no longer distinguish between the row variable
+   and the type containing the row variable. *)
 let proxy ty = Transient_expr.repr (proxy ty)
 
 (* When printing a type scheme, we print weak names.  When printing a plain
@@ -887,7 +901,7 @@ end = struct
 
   let check_name_of_type ~non_gen px =
     let name_gen = new_var_name ~non_gen (Transient_expr.type_expr px) in
-    ignore(name_of_type name_gen px)
+    ignore(name_of_type name_gen px : string)
 
   let remove_names tyl =
     let tyl = List.map substitute tyl in
@@ -1047,11 +1061,13 @@ let rec tree_of_typexp mode ty =
         in
         let t1 =
           if is_optional l then
-            match get_desc ty1 with
-            | Tconstr(path, [ty], _)
-              when Path.same path Predef.path_option ->
-                tree_of_typexp mode ty
-            | _ -> Otyp_stuff "<hidden>"
+            if tpoly_is_mono ty1 then
+              match get_desc (tpoly_get_mono ty1) with
+              | Tconstr(path, [ty], _)
+                when Path.same path Predef.path_option ->
+                  tree_of_typexp mode ty
+              | _ -> Otyp_stuff "<hidden>"
+            else Otyp_stuff "<hidden>"
           else tree_of_typexp mode ty1 in
         Otyp_arrow (lab, t1, tree_of_typexp mode ty2)
     | Ttuple tyl ->
@@ -1137,7 +1153,7 @@ let rec tree_of_typexp mode ty =
   if Aliases.(is_aliased_proxy px && aliasable ty) then begin
     let non_gen = is_non_gen mode (Transient_expr.type_expr px) in
     Aliases.add_printed_proxy ~non_gen px;
-    (* add_printed_alias chose a name, thus the name generator
+    (* add_printed_proxy chose a name, thus the name generator
        doesn't matter.*)
     let alias = Variable_names.(name_of_type (new_var_name ~non_gen ty)) px in
     Otyp_alias {non_gen;  aliased = pr_typ (); alias } end
@@ -1175,8 +1191,8 @@ and tree_of_typobject mode fi nm =
           List.sort
             (fun (n, _) (n', _) -> String.compare n n') present_fields in
         tree_of_typfields mode rest sorted_fields in
-      let (fields, open_row) = pr_fields fi in
-      Otyp_object {fields; open_row}
+      let (fields, row) = pr_fields fi in
+      Otyp_object { fields; row}
   | Some (p, _ty :: tyl) ->
       let args = tree_of_typlist mode tyl in
       let (p', s) = best_type_path p in
@@ -1190,8 +1206,14 @@ and tree_of_typfields mode rest = function
   | [] ->
       let open_row =
         match get_desc rest with
-        | Tvar _ | Tunivar _ | Tconstr _-> true
-        | Tnil -> false
+        | Tconstr (Pident p, _, _)
+          when Btype.is_row_name (Ident.name p) ->
+            Orow_open_anonymous
+        | Tvar _ | Tunivar _ ->
+            Orow_open_anonymous
+        | Tconstr _ ->
+            Orow_open (tree_of_typexp mode rest)
+        | Tnil -> Orow_closed
         | _ -> fatal_error "typfields (1)"
       in
       ([], open_row)
@@ -1200,12 +1222,12 @@ and tree_of_typfields mode rest = function
       let (fields, rest) = tree_of_typfields mode rest l in
       (field :: fields, rest)
 
-and tree_of_package mode {pack_path; pack_cstrs} =
+and tree_of_package mode {pack_path; pack_constraints} =
   { opack_path = tree_of_path (Some Module_type) pack_path;
-    opack_cstrs =
+    opack_constraints =
       List.map
         (fun (li, ty) -> (String.concat "." li, tree_of_typexp mode ty))
-        pack_cstrs }
+        pack_constraints }
 
 let typexp mode ppf ty =
   !Oprint.out_type ppf (tree_of_typexp mode ty)
@@ -1308,7 +1330,7 @@ let prepare_decl id decl =
     | None -> None
     | Some ty ->
         let ty =
-          (* Special hack to hide variant name *)
+          (* Special hack to hide row name *)
           match get_desc ty with
             Tvariant row ->
               begin match row_name row with
@@ -1316,6 +1338,14 @@ let prepare_decl id decl =
                   newgenty (Tvariant (set_row_name row None))
               | _ -> ty
               end
+          | Tobject _ ->
+              let object_row = Btype.row_of_type ty in
+              begin match get_desc object_row with
+                Tconstr (Pident id', _, _) when Ident.same id id' ->
+                  set_type_desc object_row (Tvar None);
+                  ty
+              | _ -> ty
+              end;
           | _ -> ty
         in
         prepare_type ty;
@@ -1423,7 +1453,7 @@ let tree_of_type_decl id decl =
       otype_private = priv;
       otype_immediate = Type_immediacy.of_attributes decl.type_attributes;
       otype_unboxed = unboxed;
-      otype_cstrs = constraints }
+      otype_constraints = constraints }
 
 let add_type_decl_to_preparation id decl =
    ignore @@ prepare_decl id decl
@@ -1983,8 +2013,3 @@ let tree_of_type_declaration ident td rs =
 
 let tree_of_class_type kind cty = tree_of_class_type kind [] cty
 let prepare_class_type cty = prepare_class_type [] cty
-
-let tree_of_type_path p =
-  let (p', s) = best_type_path p in
-  let p'' = if (s = Id) then p' else p in
-  tree_of_best_type_path p p''

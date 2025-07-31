@@ -53,6 +53,11 @@
 static_assert(sizeof(struct stack_info) == Stack_ctx_words * sizeof(value), "");
 
 static _Atomic int64_t fiber_id = 0;
+static atomic_uintnat live_stack_counter = 0;
+
+uintnat caml_live_stacks_memory (void) {
+  return atomic_load(&live_stack_counter);
+}
 
 uintnat caml_get_init_stack_wsize (void)
 {
@@ -79,6 +84,12 @@ void caml_change_max_stack_size (uintnat new_max_wsize)
                  new_max_wsize * sizeof (value) / 1024);
   }
   caml_max_stack_wsize = new_max_wsize;
+}
+
+
+uintnat caml_current_stack_size(void) {
+  struct stack_info *current_stack = Caml_state->current_stack;
+  return (Stack_high(current_stack) - (value*)current_stack->sp);
 }
 
 #define NUM_STACK_SIZE_CLASSES 5
@@ -149,7 +160,7 @@ Caml_inline int stack_cache_bucket (mlsize_t wosize) {
     ++bucket;
     size_bucket_wsz += size_bucket_wsz;
   }
-
+  CAMLassert(wosize>=size_bucket_wsz/2);
   return -1;
 }
 
@@ -188,6 +199,9 @@ alloc_size_class_stack_noexc(mlsize_t wosize, int cache_bucket, value hval,
     hand = (struct stack_handler*)caml_round_up(
       (uintnat)stack + sizeof(struct stack_info) + sizeof(value) * wosize, 16);
     stack->handler = hand;
+    atomic_fetch_add(&live_stack_counter,
+                     (value*)(stack->handler+1) - (value*)stack);
+
   }
 
   hand->handle_value = hval;
@@ -467,6 +481,7 @@ int caml_try_realloc_stack(asize_t required_space)
   stack_used = Stack_high(old_stack) - (value*)old_stack->sp;
   wsize = Stack_high(old_stack) - Stack_base(old_stack);
   uintnat max_stack_wsize = caml_max_stack_wsize;
+  wsize = wsize & (~1); // zero alignment bit
   do {
     if (wsize >= max_stack_wsize) return 0;
     wsize *= 2;
@@ -561,6 +576,8 @@ void caml_free_stack (struct stack_info* stack)
            (Stack_high(stack)-Stack_base(stack))*sizeof(value));
 #endif
   } else {
+    atomic_fetch_sub(&live_stack_counter,
+                     (value*)(stack->handler+1) - (value*)stack);
 #ifdef DEBUG
     memset(stack, 0x42, (char*)stack->handler - (char*)stack);
 #endif
@@ -595,9 +612,9 @@ CAMLprim value caml_continuation_use_noexc (value cont)
 
   /* this forms a barrier between execution and any other domains
      that might be marking this continuation */
-  if (!Is_young(cont) ) caml_darken_cont(cont);
+  if (!Is_young(cont) && caml_marking_started())
+    caml_darken_cont(cont);
 
-  /* at this stage the stack is assured to be marked */
   v = Field(cont, 0);
 
   if (caml_domain_alone()) {

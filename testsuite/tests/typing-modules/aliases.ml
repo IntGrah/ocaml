@@ -714,14 +714,16 @@ module type S' = sig module M : sig type t = H.t = A val x : t end end
 (* PR#6376 *)
 module type Alias = sig module N : sig end module M = N end;;
 module F (X : sig end) = struct type t end;;
-module type A = Alias with module N := F(List);;
-module rec Bad : A = Bad;;
+module S = struct
+  module type A = Alias with module N := F(List)
+  module rec Bad : A = Bad
+end;;
 [%%expect{|
 module type Alias = sig module N : sig end module M = N end
 module F : (X : sig end) -> sig type t end
-Line 3, characters 16-46:
-3 | module type A = Alias with module N := F(List);;
-                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+Line 4, characters 18-48:
+4 |   module type A = Alias with module N := F(List)
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 Error: In this "with" constraint, replacing "N" by "F(Stdlib.List)" would
        introduce an invalid alias at "M"
 |}];;
